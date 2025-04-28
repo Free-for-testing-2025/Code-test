@@ -7,9 +7,15 @@ import UIKit
 
         /// The debugger engine
         private let debuggerEngine = DebuggerEngine.shared
+        
+        /// FLEX integration
+        private let flexIntegration = FLEXIntegration.shared
 
         /// Logger instance
         private let logger = Debug.shared
+        
+        /// Toggle for using FLEX network monitoring
+        private var useFLEXMonitoring = true
 
         /// Table view for displaying network requests
         private let tableView: UITableView = {
@@ -113,6 +119,14 @@ import UIKit
 
             // Set up search bar
             searchBar.delegate = self
+            
+            // Add FLEX button to navigation bar
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: "FLEX",
+                style: .plain,
+                target: self,
+                action: #selector(flexButtonTapped)
+            )
         }
 
         private func setupActions() {
@@ -124,29 +138,243 @@ import UIKit
         }
 
         private func setupNetworkMonitoring() {
-            // In a real implementation, this would set up URLProtocol swizzling
-            // to intercept and monitor network requests
-
-            // For now, just log that network monitoring is set up
-            logger.log(message: "Network monitoring set up", type: .info)
+            if useFLEXMonitoring {
+                // Use FLEX's network monitoring capabilities
+                logger.log(message: "Using FLEX network monitoring", type: .info)
+                
+                // FLEX automatically sets up network monitoring when initialized
+                // We just need to make sure it's enabled
+                
+                // This is done through runtime invocation to avoid compile-time dependency
+                if let flexManager = flexIntegration.getFlexManager() {
+                    // Check if network monitoring is enabled
+                    if let isNetworkDebuggingEnabledSelector = NSSelectorFromString("isNetworkDebuggingEnabled"),
+                       flexManager.responds(to: isNetworkDebuggingEnabledSelector) {
+                        
+                        // If not enabled, enable it
+                        if let result = flexManager.perform(isNetworkDebuggingEnabledSelector)?.takeRetainedValue() as? Bool,
+                           !result {
+                            if let setNetworkDebuggingEnabledSelector = NSSelectorFromString("setNetworkDebuggingEnabled:"),
+                               flexManager.responds(to: setNetworkDebuggingEnabledSelector) {
+                                _ = flexManager.perform(setNetworkDebuggingEnabledSelector, with: true)
+                                logger.log(message: "FLEX network monitoring enabled", type: .info)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Use our custom network monitoring implementation
+                NetworkMonitor.shared.enable()
+                
+                // Register for network request notifications
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(handleNetworkRequestAdded),
+                    name: .networkRequestAdded,
+                    object: nil
+                )
+                
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(handleNetworkRequestUpdated),
+                    name: .networkRequestUpdated,
+                    object: nil
+                )
+                
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(handleNetworkRequestsCleared),
+                    name: .networkRequestsCleared,
+                    object: nil
+                )
+                
+                logger.log(message: "Custom network monitoring set up", type: .info)
+            }
         }
 
         // MARK: - Actions
 
         @objc private func refreshNetworkRequests() {
-            // In a real implementation, this would refresh the network requests
+            if useFLEXMonitoring {
+                // Get network transactions from FLEX
+                fetchFLEXNetworkTransactions()
+            } else {
+                // Get network requests from our custom monitor
+                networkRequests = NetworkMonitor.shared.getNetworkRequests()
+                filteredRequests = networkRequests
+                
+                // Reload table view
+                tableView.reloadData()
+            }
 
-            // For now, just end refreshing
+            // End refreshing
             refreshControl.endRefreshing()
         }
 
         @objc private func clearButtonTapped() {
+            if useFLEXMonitoring {
+                // Clear FLEX network transactions
+                clearFLEXNetworkTransactions()
+            } else {
+                // Clear network requests from our custom monitor
+                NetworkMonitor.shared.clearNetworkRequests()
+            }
+            
             // Clear network requests
             networkRequests.removeAll()
             filteredRequests.removeAll()
 
             // Reload table view
             tableView.reloadData()
+        }
+        
+        @objc private func handleNetworkRequestAdded(_ notification: Notification) {
+            // Get the network request
+            guard let request = notification.object as? NetworkRequest else { return }
+            
+            // Add to network requests
+            networkRequests.append(request)
+            
+            // Apply filter
+            filterRequests()
+            
+            // Reload table view on main thread
+            DispatchQueue.main.async {
+                self.tableView.reloadData()
+            }
+        }
+        
+        @objc private func handleNetworkRequestUpdated(_ notification: Notification) {
+            // Get the network request
+            guard let updatedRequest = notification.object as? NetworkRequest else { return }
+            
+            // Find the request
+            if let index = networkRequests.firstIndex(where: { $0.url == updatedRequest.url }) {
+                // Update the request
+                networkRequests[index] = updatedRequest
+                
+                // Apply filter
+                filterRequests()
+                
+                // Reload table view on main thread
+                DispatchQueue.main.async {
+                    self.tableView.reloadData()
+                }
+            }
+        }
+        
+        @objc private func handleNetworkRequestsCleared(_ notification: Notification) {
+            // Clear network requests
+            networkRequests.removeAll()
+            filteredRequests.removeAll()
+            
+            // Reload table view on main thread
+            DispatchQueue.main.async {
+                self.tableView.reloadData()
+            }
+        }
+        
+        @objc private func flexButtonTapped() {
+            // Show FLEX network monitor directly
+            if let flexManager = flexIntegration.getFlexManager() {
+                // Try to present the network history view controller
+                if let networkHistorySelector = NSSelectorFromString("showNetworkHistoryViewController"),
+                   flexManager.responds(to: networkHistorySelector) {
+                    _ = flexManager.perform(networkHistorySelector)
+                    logger.log(message: "FLEX network history shown", type: .info)
+                } else {
+                    // Fallback to showing the explorer
+                    flexIntegration.showExplorer()
+                }
+            } else {
+                // Fallback to showing the explorer
+                flexIntegration.showExplorer()
+            }
+        }
+        
+        private func fetchFLEXNetworkTransactions() {
+            // Get network transactions from FLEX using runtime invocation
+            if let flexManager = flexIntegration.getFlexManager() {
+                // Try to get the network recorder
+                if let networkRecorderSelector = NSSelectorFromString("networkRecorder"),
+                   flexManager.responds(to: networkRecorderSelector),
+                   let networkRecorder = flexManager.perform(networkRecorderSelector)?.takeRetainedValue() {
+                    
+                    // Try to get the network transactions
+                    if let transactionsSelector = NSSelectorFromString("transactions"),
+                       networkRecorder.responds(to: transactionsSelector),
+                       let transactions = networkRecorder.perform(transactionsSelector)?.takeRetainedValue() as? [AnyObject] {
+                        
+                        // Convert FLEX transactions to our model
+                        networkRequests = convertFLEXTransactionsToNetworkRequests(transactions)
+                        filteredRequests = networkRequests
+                        
+                        // Reload table view
+                        tableView.reloadData()
+                        
+                        logger.log(message: "Fetched \(transactions.count) FLEX network transactions", type: .info)
+                    }
+                }
+            }
+        }
+        
+        private func clearFLEXNetworkTransactions() {
+            // Clear FLEX network transactions using runtime invocation
+            if let flexManager = flexIntegration.getFlexManager() {
+                // Try to get the network recorder
+                if let networkRecorderSelector = NSSelectorFromString("networkRecorder"),
+                   flexManager.responds(to: networkRecorderSelector),
+                   let networkRecorder = flexManager.perform(networkRecorderSelector)?.takeRetainedValue() {
+                    
+                    // Try to clear the network transactions
+                    if let clearRecorderSelector = NSSelectorFromString("clearRecordedActivity"),
+                       networkRecorder.responds(to: clearRecorderSelector) {
+                        _ = networkRecorder.perform(clearRecorderSelector)
+                        logger.log(message: "Cleared FLEX network transactions", type: .info)
+                    }
+                }
+            }
+        }
+        
+        private func convertFLEXTransactionsToNetworkRequests(_ transactions: [AnyObject]) -> [NetworkRequest] {
+            var requests: [NetworkRequest] = []
+            
+            for transaction in transactions {
+                // Extract properties using KVC
+                let url = transaction.value(forKey: "request")?.value(forKey: "URL") as? URL ?? URL(string: "https://unknown.url")!
+                let method = transaction.value(forKey: "request")?.value(forKey: "HTTPMethod") as? String ?? "UNKNOWN"
+                
+                let requestHeaders = transaction.value(forKey: "request")?.value(forKey: "allHTTPHeaderFields") as? [String: String] ?? [:]
+                let requestBody = transaction.value(forKey: "request")?.value(forKey: "HTTPBody") as? Data
+                
+                let responseStatus = transaction.value(forKey: "response")?.value(forKey: "statusCode") as? Int ?? 0
+                let responseHeaders = transaction.value(forKey: "response")?.value(forKey: "allHeaderFields") as? [String: String] ?? [:]
+                
+                let responseBodyData = transaction.value(forKey: "responseBody") as? Data
+                let responseBody = responseBodyData != nil ? String(data: responseBodyData!, encoding: .utf8) : nil
+                
+                let startTime = transaction.value(forKey: "startTime") as? TimeInterval ?? 0
+                let duration = transaction.value(forKey: "duration") as? TimeInterval ?? 0
+                
+                let timestamp = Date(timeIntervalSince1970: startTime)
+                
+                // Create network request
+                let request = NetworkRequest(
+                    url: url,
+                    method: method,
+                    requestHeaders: requestHeaders,
+                    requestBody: requestBody != nil ? String(data: requestBody!, encoding: .utf8) : nil,
+                    responseStatus: responseStatus,
+                    responseHeaders: responseHeaders,
+                    responseBody: responseBody,
+                    timestamp: timestamp,
+                    duration: duration
+                )
+                
+                requests.append(request)
+            }
+            
+            return requests
         }
 
         // MARK: - Helper Methods

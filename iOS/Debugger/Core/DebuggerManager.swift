@@ -1,4 +1,5 @@
 import UIKit
+import ObjectiveC
 
 /// Manager class for the runtime debugger
 /// Handles the floating button and debugger UI
@@ -18,6 +19,9 @@ public final class DebuggerManager {
 
     /// The debugger engine
     private let debuggerEngine = DebuggerEngine.shared
+    
+    /// FLEX integration
+    private let flexIntegration = FLEXIntegration.shared
 
     /// Current debugger view controller
     private weak var debuggerViewController: DebuggerViewController?
@@ -35,6 +39,27 @@ public final class DebuggerManager {
     private var isSetUp: Bool {
         get { stateQueue.sync { _isSetUp } }
         set { stateQueue.sync { _isSetUp = newValue } }
+    }
+    
+    /// Debug mode - determines which UI to show
+    public enum DebugMode {
+        case standard  // Our custom debugger UI
+        case flex      // FLEX explorer UI
+    }
+    
+    /// Current debug mode
+    private var _debugMode: DebugMode = .standard
+    public var debugMode: DebugMode {
+        get { stateQueue.sync { _debugMode } }
+        set { 
+            stateQueue.sync { _debugMode = newValue }
+            // Update UI based on mode change
+            if newValue == .flex {
+                logger.log(message: "Switching to FLEX debug mode", type: .info)
+            } else {
+                logger.log(message: "Switching to standard debug mode", type: .info)
+            }
+        }
     }
 
     /// Weak references to parent views
@@ -62,6 +87,13 @@ public final class DebuggerManager {
 
     /// Show the debugger UI
     public func showDebugger() {
+        // If in FLEX mode, show FLEX explorer
+        if debugMode == .flex {
+            flexIntegration.showExplorer()
+            return
+        }
+        
+        // Otherwise show our standard debugger
         guard !isDebuggerVisible else { return }
 
         DispatchQueue.main.async { [weak self] in
@@ -111,12 +143,32 @@ public final class DebuggerManager {
 
     /// Hide the debugger UI
     public func hideDebugger() {
+        // If in FLEX mode, hide FLEX explorer
+        if debugMode == .flex {
+            flexIntegration.hideExplorer()
+            return
+        }
+        
+        // Otherwise hide our standard debugger
         guard isDebuggerVisible, let debuggerVC = debuggerViewController else { return }
 
         DispatchQueue.main.async {
             debuggerVC.dismiss(animated: true) {
                 self.isDebuggerVisible = false
                 self.logger.log(message: "Debugger dismissed", type: .info)
+            }
+        }
+    }
+    
+    /// Toggle the debugger UI
+    public func toggleDebugger() {
+        if debugMode == .flex {
+            flexIntegration.toggleExplorer()
+        } else {
+            if isDebuggerVisible {
+                hideDebugger()
+            } else {
+                showDebugger()
             }
         }
     }
@@ -137,6 +189,9 @@ public final class DebuggerManager {
 
             // Add to the top view controller's view
             topVC.view.addSubview(self.floatingButton)
+            
+            // Configure the button based on the current debug mode
+            self.floatingButton.updateAppearance(forMode: self.debugMode)
 
             self.logger.log(message: "Floating debugger button added", type: .info)
         }
@@ -149,6 +204,42 @@ public final class DebuggerManager {
             self?.logger.log(message: "Floating debugger button removed", type: .info)
         }
     }
+    
+    /// Switch between debug modes
+    public func switchDebugMode(_ mode: DebugMode) {
+        // If we're already in this mode, do nothing
+        if debugMode == mode {
+            return
+        }
+        
+        // Hide current debugger UI
+        if debugMode == .flex {
+            flexIntegration.hideExplorer()
+        } else if isDebuggerVisible {
+            hideDebugger()
+        }
+        
+        // Set new mode
+        debugMode = mode
+        
+        // Update floating button appearance
+        floatingButton.updateAppearance(forMode: mode)
+    }
+    
+    /// Present an object explorer for the given object
+    /// - Parameter object: The object to explore
+    public func presentObjectExplorer(_ object: Any) {
+        if debugMode == .flex {
+            flexIntegration.presentObjectExplorer(object)
+        } else {
+            // Use our own object explorer or show variables view
+            showDebugger()
+            // Select the variables tab and focus on this object
+            if let debuggerVC = debuggerViewController {
+                debuggerVC.showVariablesTab(withObject: object)
+            }
+        }
+    }
 
     // MARK: - Private Methods
 
@@ -158,6 +249,14 @@ public final class DebuggerManager {
             self,
             selector: #selector(handleShowDebugger),
             name: .showDebugger,
+            object: nil
+        )
+        
+        // Listen for mode switch
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSwitchDebugMode),
+            name: .switchDebugMode,
             object: nil
         )
 
@@ -203,6 +302,12 @@ public final class DebuggerManager {
     @objc private func handleShowDebugger() {
         showDebugger()
     }
+    
+    @objc private func handleSwitchDebugMode(_ notification: Notification) {
+        if let mode = notification.object as? DebugMode {
+            switchDebugMode(mode)
+        }
+    }
 
     @objc private func handleShowFloatingButton() {
         showFloatingButton()
@@ -223,7 +328,7 @@ public final class DebuggerManager {
 
     @objc private func handleAppDidBecomeActive() {
         // Show the floating button when app becomes active
-        if !isDebuggerVisible {
+        if !isDebuggerVisible && debugMode == .standard {
             DispatchQueue.main.async { [weak self] in
                 self?.showFloatingButton()
             }
