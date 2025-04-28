@@ -2,16 +2,52 @@ import UIKit
 
 extension UIApplication {
     func topMostViewController() -> UIViewController? {
-        guard let windowScene = connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first
-        else {
-            return nil
+        // First try to get the active window scene
+        if let windowScene = connectedScenes.first(where: { 
+            $0.activationState == .foregroundActive 
+        }) as? UIWindowScene {
+            // Try to get the key window first
+            if let window = windowScene.windows.first(where: { $0.isKeyWindow }) {
+                return findTopViewController(from: window.rootViewController)
+            }
+            
+            // Fallback to any window
+            if let window = windowScene.windows.first {
+                return findTopViewController(from: window.rootViewController)
+            }
         }
-        var topController = window.rootViewController
-        while let presentedController = topController?.presentedViewController {
-            topController = presentedController
+        
+        // Fallback for older iOS versions or if no active scene
+        if let window = windows.first(where: { $0.isKeyWindow }) {
+            return findTopViewController(from: window.rootViewController)
+        } else if let window = windows.first {
+            return findTopViewController(from: window.rootViewController)
         }
-        return topController
+        
+        return nil
+    }
+    
+    private func findTopViewController(from viewController: UIViewController?) -> UIViewController? {
+        guard let viewController = viewController else { return nil }
+        
+        // If presenting a view controller, recursively find the top
+        if let presentedVC = viewController.presentedViewController {
+            return findTopViewController(from: presentedVC)
+        }
+        
+        // Handle navigation controllers
+        if let navController = viewController as? UINavigationController, 
+           let topVC = navController.topViewController {
+            return findTopViewController(from: topVC)
+        }
+        
+        // Handle tab bar controllers
+        if let tabController = viewController as? UITabBarController, 
+           let selectedVC = tabController.selectedViewController {
+            return findTopViewController(from: selectedVC)
+        }
+        
+        return viewController
     }
 }
 

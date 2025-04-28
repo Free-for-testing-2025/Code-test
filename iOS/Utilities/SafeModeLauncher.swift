@@ -17,30 +17,50 @@ class SafeModeLauncher {
 
     /// Record a launch attempt and enter safe mode if there have been too many failures
     func recordLaunchAttempt() {
-        let launchAttempts = UserDefaults.standard.integer(forKey: launchAttemptsKey) + 1
-        UserDefaults.standard.set(launchAttempts, forKey: launchAttemptsKey)
+        // Check if we're already in safe mode - don't increment counter in that case
+        if UserDefaults.standard.bool(forKey: safeModeFlagKey) {
+            print("🛡️ Already in safe mode, not incrementing launch attempts")
+            return
+        }
+        
+        // Get current count with a default of 0 to handle corrupted values
+        let currentCount = max(0, UserDefaults.standard.integer(forKey: launchAttemptsKey))
+        let launchAttempts = currentCount + 1
+        
+        // Ensure we don't exceed a reasonable maximum (as a safeguard)
+        let cappedAttempts = min(launchAttempts, 10)
+        
+        UserDefaults.standard.set(cappedAttempts, forKey: launchAttemptsKey)
         UserDefaults.standard.synchronize()
 
-        if launchAttempts >= maxLaunchAttempts {
+        print("📱 App launch attempt #\(cappedAttempts) recorded")
+        
+        // Enter safe mode if we've reached the threshold
+        if cappedAttempts >= maxLaunchAttempts {
+            print("⚠️ Maximum launch attempts reached, enabling safe mode")
             enableSafeMode()
         }
-
-        print("📱 App launch attempt #\(launchAttempts) recorded")
     }
 
     /// Mark the launch as successful, resetting the launch attempts counter
     func markLaunchSuccessful() {
         launchSuccessMarked = true
+        
+        // Reset counter immediately to prevent false crash detection
+        UserDefaults.standard.set(0, forKey: launchAttemptsKey)
+        UserDefaults.standard.synchronize()
+        print("✅ App launch marked as successful, counter reset immediately")
 
-        // Reset counter after successful launch with a delay to ensure stability
+        // Also schedule a delayed reset as a backup
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
             guard let self = self, self.launchSuccessMarked == true else { return }
 
-            // Use a constant default to avoid empty string keys if self is nil
-            let key = self.launchAttemptsKey
-            UserDefaults.standard.set(0, forKey: key)
-            UserDefaults.standard.synchronize()
-            print("✅ App launch marked as successful, counter reset")
+            // Double-check that the counter is still reset
+            if UserDefaults.standard.integer(forKey: self.launchAttemptsKey) > 0 {
+                UserDefaults.standard.set(0, forKey: self.launchAttemptsKey)
+                UserDefaults.standard.synchronize()
+                print("🔄 App launch counter verified and reset again")
+            }
         }
     }
 

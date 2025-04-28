@@ -54,9 +54,18 @@ public final class DebuggerManager {
     public func initialize() {
         logger.log(message: "Initializing debugger", type: .info)
 
-        // Show the floating button
-        DispatchQueue.main.async { [weak self] in
-            self?.showFloatingButton()
+        // Delay showing the floating button to ensure the view hierarchy is ready
+        // Use a longer delay to ensure the app is fully initialized
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self = self else { return }
+            
+            // Only show the button if the app is active and not in background
+            if UIApplication.shared.applicationState == .active {
+                self.showFloatingButton()
+                self.logger.log(message: "Showing floating button after delay", type: .info)
+            } else {
+                self.logger.log(message: "App not active, skipping floating button", type: .info)
+            }
         }
     }
 
@@ -126,19 +135,36 @@ public final class DebuggerManager {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            // Find the top view controller to add the button
-            guard let topVC = UIApplication.shared.topMostViewController() else {
-                self.logger.log(message: "No view controller to add floating button", type: .error)
-                return
+            // Try to find the top view controller
+            if let topVC = UIApplication.shared.topMostViewController() {
+                // Remove from current superview
+                self.floatingButton.removeFromSuperview()
+
+                // Add to the top view controller's view
+                topVC.view.addSubview(self.floatingButton)
+                self.logger.log(message: "Floating debugger button added to top VC", type: .info)
+            } 
+            // Fallback to key window if no top view controller
+            else if let keyWindow = UIApplication.shared.keyWindow {
+                // Remove from current superview
+                self.floatingButton.removeFromSuperview()
+
+                // Add to the key window
+                keyWindow.addSubview(self.floatingButton)
+                self.logger.log(message: "Floating debugger button added to key window", type: .info)
             }
+            // Fallback to any window
+            else if let window = UIApplication.shared.windows.first {
+                // Remove from current superview
+                self.floatingButton.removeFromSuperview()
 
-            // Remove from current superview
-            self.floatingButton.removeFromSuperview()
-
-            // Add to the top view controller's view
-            topVC.view.addSubview(self.floatingButton)
-
-            self.logger.log(message: "Floating debugger button added", type: .info)
+                // Add to the first window
+                window.addSubview(self.floatingButton)
+                self.logger.log(message: "Floating debugger button added to first window", type: .info)
+            }
+            else {
+                self.logger.log(message: "No view controller or window to add floating button", type: .error)
+            }
         }
     }
 
