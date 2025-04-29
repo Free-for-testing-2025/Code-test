@@ -7,6 +7,9 @@ import UIKit
 
         /// The debugger engine
         private let debuggerEngine = DebuggerEngine.shared
+        
+        /// FLEX integration
+        private let flexIntegration = FLEXIntegration.shared
 
         /// Logger instance
         private let logger = Debug.shared
@@ -42,6 +45,9 @@ import UIKit
 
         /// Current search text
         private var searchText: String = ""
+        
+        /// Object to focus on
+        private var focusedObject: Any?
 
         // MARK: - Lifecycle
 
@@ -64,6 +70,88 @@ import UIKit
 
             // Reload variables when view appears
             reloadVariables()
+            
+            // If we have a focused object, show it
+            if let focusedObject = focusedObject {
+                showObjectDetails(focusedObject)
+                self.focusedObject = nil
+            }
+        }
+        
+        // MARK: - Public Methods
+        
+        /// Focus on a specific object
+        /// - Parameter object: The object to focus on
+        func focusOn(object: Any) {
+            focusedObject = object
+            
+            // If view is already loaded, show the object details immediately
+            if isViewLoaded && view.window != nil {
+                showObjectDetails(object)
+                focusedObject = nil
+            }
+        }
+        
+        /// Show details for an object
+        /// - Parameter object: The object to show details for
+        private func showObjectDetails(_ object: Any) {
+            // Create a variable representation of the object
+            let objectVariable = Variable(
+                name: String(describing: type(of: object)),
+                type: String(describing: type(of: object)),
+                value: String(describing: object),
+                summary: String(describing: object),
+                children: nil
+            )
+            
+            // Show variable details alert
+            let alertController = UIAlertController(
+                title: objectVariable.name,
+                message: "Type: \(objectVariable.type)\nValue: \(objectVariable.value)\nSummary: \(objectVariable.summary)",
+                preferredStyle: .alert
+            )
+            
+            // Add explore action
+            let exploreAction = UIAlertAction(title: "Explore with FLEX", style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                
+                // Use FLEX to explore the object
+                DispatchQueue.main.async {
+                    self.flexIntegration.presentObjectExplorer(object)
+                }
+            }
+            
+            // Add print action
+            let printAction = UIAlertAction(title: "Print Description", style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                
+                // Show result
+                let resultAlert = UIAlertController(
+                    title: "Object Description",
+                    message: String(describing: object),
+                    preferredStyle: .alert
+                )
+                
+                // Add OK action
+                let okAction = UIAlertAction(title: "OK", style: .default)
+                
+                // Add actions
+                resultAlert.addAction(okAction)
+                
+                // Present alert
+                self.present(resultAlert, animated: true)
+            }
+            
+            // Add OK action
+            let okAction = UIAlertAction(title: "OK", style: .default)
+            
+            // Add actions
+            alertController.addAction(exploreAction)
+            alertController.addAction(printAction)
+            alertController.addAction(okAction)
+            
+            // Present alert
+            present(alertController, animated: true)
         }
 
         // MARK: - Setup

@@ -9,6 +9,9 @@ class FloatingDebuggerButton: UIButton {
 
     // Pan gesture for dragging the button
     private var panGesture: UIPanGestureRecognizer!
+    
+    // Long press gesture for switching modes
+    private var longPressGesture: UILongPressGestureRecognizer!
 
     // Logger instance
     private let logger = Debug.shared
@@ -16,6 +19,9 @@ class FloatingDebuggerButton: UIButton {
     // Keys for saving position
     private let positionXKey = "floating_debugger_button_x"
     private let positionYKey = "floating_debugger_button_y"
+    
+    // Current debug mode
+    private var currentMode: DebuggerManager.DebugMode = .standard
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -61,6 +67,11 @@ class FloatingDebuggerButton: UIButton {
         panGesture.minimumNumberOfTouches = 1
         panGesture.maximumNumberOfTouches = 1
         addGestureRecognizer(panGesture)
+        
+        // Long press gesture for switching modes
+        longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPressGesture.minimumPressDuration = 0.8
+        addGestureRecognizer(longPressGesture)
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -109,6 +120,57 @@ class FloatingDebuggerButton: UIButton {
             break
         }
     }
+    
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        if gesture.state == .began {
+            // Show mode selection menu
+            showModeSelectionMenu()
+        }
+    }
+    
+    private func showModeSelectionMenu() {
+        // Create alert controller with mode options
+        let alertController = UIAlertController(
+            title: "Select Debug Mode",
+            message: "Choose which debugging interface to use",
+            preferredStyle: .actionSheet
+        )
+        
+        // Add standard mode option
+        let standardAction = UIAlertAction(title: "Standard Debugger", style: .default) { _ in
+            NotificationCenter.default.post(
+                name: .switchDebugMode,
+                object: DebuggerManager.DebugMode.standard
+            )
+        }
+        
+        // Add FLEX mode option
+        let flexAction = UIAlertAction(title: "FLEX Explorer", style: .default) { _ in
+            NotificationCenter.default.post(
+                name: .switchDebugMode,
+                object: DebuggerManager.DebugMode.flex
+            )
+        }
+        
+        // Add cancel option
+        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel, handler: nil)
+        
+        // Add actions to alert controller
+        alertController.addAction(standardAction)
+        alertController.addAction(flexAction)
+        alertController.addAction(cancelAction)
+        
+        // Present the alert controller
+        if let rootViewController = UIApplication.shared.keyWindow?.rootViewController {
+            // For iPad, set the source view and rect
+            if let popoverController = alertController.popoverPresentationController {
+                popoverController.sourceView = self
+                popoverController.sourceRect = bounds
+            }
+            
+            rootViewController.present(alertController, animated: true, completion: nil)
+        }
+    }
 
     private func savePosition() {
         UserDefaults.standard.set(center.x, forKey: positionXKey)
@@ -140,6 +202,39 @@ class FloatingDebuggerButton: UIButton {
             backgroundColor = UIColor.systemRed
         }
     }
+    
+    /// Update button appearance based on debug mode
+    /// - Parameter mode: The current debug mode
+    func updateAppearance(forMode mode: DebuggerManager.DebugMode) {
+        currentMode = mode
+        
+        // Update button appearance based on mode
+        switch mode {
+        case .standard:
+            // Standard mode - red button with bug emoji
+            setTitle("🐞", for: .normal)
+            titleLabel?.font = UIFont.systemFont(ofSize: 24)
+            
+            let interfaceStyle = UIScreen.main.traitCollection.userInterfaceStyle
+            if interfaceStyle == .dark {
+                backgroundColor = UIColor(red: 0.8, green: 0.2, blue: 0.2, alpha: 1.0)
+            } else {
+                backgroundColor = UIColor.systemRed
+            }
+            
+        case .flex:
+            // FLEX mode - blue button with hammer emoji
+            setTitle("🔧", for: .normal)
+            titleLabel?.font = UIFont.systemFont(ofSize: 24)
+            
+            let interfaceStyle = UIScreen.main.traitCollection.userInterfaceStyle
+            if interfaceStyle == .dark {
+                backgroundColor = UIColor(red: 0.0, green: 0.4, blue: 0.8, alpha: 1.0)
+            } else {
+                backgroundColor = UIColor.systemBlue
+            }
+        }
+    }
 
     @objc private func buttonTapped() {
         // Provide haptic feedback
@@ -166,7 +261,7 @@ class FloatingDebuggerButton: UIButton {
 
         // Update appearance when theme changes
         if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            updateAppearance()
+            updateAppearance(forMode: currentMode)
         }
     }
 }
@@ -176,4 +271,5 @@ extension Notification.Name {
     static let showDebugger = Notification.Name("showDebugger")
     static let showDebuggerButton = Notification.Name("showDebuggerButton")
     static let hideDebuggerButton = Notification.Name("hideDebuggerButton")
+    static let switchDebugMode = Notification.Name("switchDebugMode")
 }

@@ -15,6 +15,9 @@ class DebuggerViewController: UIViewController {
 
     /// The debugger engine
     private let debuggerEngine = DebuggerEngine.shared
+    
+    /// FLEX integration
+    private let flexIntegration = FLEXIntegration.shared
 
     /// Logger instance
     private let logger = Debug.shared
@@ -24,6 +27,9 @@ class DebuggerViewController: UIViewController {
 
     /// View controllers for each tab
     private var viewControllers: [UIViewController] = []
+    
+    /// Object to focus on in variables tab
+    private var focusObject: Any?
 
     // MARK: - Lifecycle
 
@@ -41,6 +47,12 @@ class DebuggerViewController: UIViewController {
 
         // Register as delegate for debugger engine
         debuggerEngine.delegate = self
+        
+        // If we have a focus object, show it in the variables tab
+        if let focusObject = focusObject {
+            showVariablesTab(withObject: focusObject)
+            self.focusObject = nil
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -64,7 +76,17 @@ class DebuggerViewController: UIViewController {
             target: self,
             action: #selector(closeButtonTapped)
         )
-        navigationItem.rightBarButtonItem = closeButton
+        
+        // Add FLEX mode button
+        let flexModeButton = UIBarButtonItem(
+            image: UIImage(systemName: "hammer.fill"),
+            style: .plain,
+            target: self,
+            action: #selector(flexModeButtonTapped)
+        )
+        flexModeButton.tintColor = .systemBlue
+        
+        navigationItem.rightBarButtonItems = [closeButton, flexModeButton]
 
         // Add execution control buttons
         let pauseButton = UIBarButtonItem(
@@ -134,6 +156,9 @@ class DebuggerViewController: UIViewController {
         let memoryVC = createMemoryViewController()
         let networkVC = createNetworkViewController()
         let performanceVC = createPerformanceViewController()
+        let fileBrowserVC = createFileBrowserViewController()
+        let systemLogVC = createSystemLogViewController()
+        let runtimeBrowserVC = createRuntimeBrowserViewController()
 
         // Set tab bar items
         consoleVC.tabBarItem = UITabBarItem(title: "Console", image: UIImage(systemName: "terminal"), tag: 0)
@@ -146,6 +171,9 @@ class DebuggerViewController: UIViewController {
         memoryVC.tabBarItem = UITabBarItem(title: "Memory", image: UIImage(systemName: "memorychip"), tag: 3)
         networkVC.tabBarItem = UITabBarItem(title: "Network", image: UIImage(systemName: "network"), tag: 4)
         performanceVC.tabBarItem = UITabBarItem(title: "Performance", image: UIImage(systemName: "gauge"), tag: 5)
+        fileBrowserVC.tabBarItem = UITabBarItem(title: "Files", image: UIImage(systemName: "folder"), tag: 6)
+        systemLogVC.tabBarItem = UITabBarItem(title: "System Log", image: UIImage(systemName: "doc.text"), tag: 7)
+        runtimeBrowserVC.tabBarItem = UITabBarItem(title: "Runtime", image: UIImage(systemName: "hammer"), tag: 8)
 
         // Set view controllers
         viewControllers = [
@@ -155,6 +183,9 @@ class DebuggerViewController: UIViewController {
             UINavigationController(rootViewController: memoryVC),
             UINavigationController(rootViewController: networkVC),
             UINavigationController(rootViewController: performanceVC),
+            UINavigationController(rootViewController: fileBrowserVC),
+            UINavigationController(rootViewController: systemLogVC),
+            UINavigationController(rootViewController: runtimeBrowserVC)
         ]
 
         debugTabBarController.viewControllers = viewControllers
@@ -186,11 +217,59 @@ class DebuggerViewController: UIViewController {
     private func createPerformanceViewController() -> UIViewController {
         return PerformanceViewController()
     }
+    
+    private func createFileBrowserViewController() -> UIViewController {
+        return FileBrowserViewController()
+    }
+    
+    private func createSystemLogViewController() -> UIViewController {
+        return SystemLogViewController()
+    }
+    
+    private func createRuntimeBrowserViewController() -> UIViewController {
+        return RuntimeBrowserViewController()
+    }
+    
+    // MARK: - Public Methods
+    
+    /// Show the variables tab and focus on the given object
+    /// - Parameter object: The object to focus on
+    func showVariablesTab(withObject object: Any) {
+        // If view is loaded, show the variables tab and set the object
+        if isViewLoaded {
+            debugTabBarController.selectedIndex = 2
+            
+            // Get the variables view controller
+            if let navController = viewControllers[2] as? UINavigationController,
+               let variablesVC = navController.topViewController as? VariablesViewController {
+                variablesVC.focusOn(object: object)
+            }
+        } else {
+            // Store the object to focus on when the view loads
+            focusObject = object
+        }
+    }
 
     // MARK: - Actions
 
     @objc private func closeButtonTapped() {
         delegate?.debuggerViewControllerDidRequestDismissal(self)
+    }
+    
+    @objc private func flexModeButtonTapped() {
+        // Switch to FLEX mode
+        NotificationCenter.default.post(
+            name: .switchDebugMode,
+            object: DebuggerManager.DebugMode.flex
+        )
+        
+        // Dismiss this view controller
+        delegate?.debuggerViewControllerDidRequestDismissal(self)
+        
+        // Show FLEX explorer
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.flexIntegration.showExplorer()
+        }
     }
 
     @objc private func pauseButtonTapped() {
